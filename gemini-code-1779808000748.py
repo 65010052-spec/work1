@@ -40,38 +40,34 @@ if 'database' not in st.session_state:
 # --- 4. ส่วนของ Admin อัปโหลดไฟล์ ---
 if user_role in ["Admin 1", "Admin 2"]:
     st.markdown('<div class="admin-box">', unsafe_allow_html=True)
-    st.subheader("📥 พื้นที่สำหรับ Admin: อัปโหลดไฟล์ Excel ยอดงาน")
+    st.subheader("📥 พื้นที่สำหรับ Admin: อัปโหลดไฟล์ยอดงานประจำวัน")
+    st.write("📢 โย่นไฟล์ได้ทั้ง Excel (.xlsx) และ CSV ระบบจะเคลียร์ขยะให้อัตโนมัติ")
     
     uploaded_file = st.file_uploader("โยนไฟล์ Excel (.xlsx) หรือ CSV ตรงนี้", type=["xlsx", "csv"], key="uploader")
     
     if uploaded_file is not None:
         try:
-            # อ่านข้อมูลดิบทั้งหมดเข้ามาแบบไม่มีหัวตารางเพื่อป้องกันระบบเอ๋อ
+            # ใช้คำสั่งอ่านข้อมูลแบบดิบที่สุด โดยบังคับใช้ engine='openpyxl' สำหรับ excel เพื่อแก้ปัญหาค้าง
             if uploaded_file.name.endswith('.csv'):
                 raw_df = pd.read_csv(uploaded_file, header=None)
             else:
-                raw_df = pd.read_excel(uploaded_file, header=None)
+                raw_df = pd.read_excel(uploaded_file, header=None, engine='openpyxl')
             
-            # ลิสต์สำหรับเก็บข้อมูลที่ทำความสะอาดแล้ว
             cleaned_rows = []
             
-            # วนลูปเช็คทีละแถว ค้นหาข้อมูลจริง
+            # วนลูปอ่านข้อมูลทีละบรรทัด ค้นหาข้อมูลงานจริง
             for idx, row in raw_df.iterrows():
-                # แปลงข้อมูลในแถวเป็นลิสต์ของตัวหนังสือ
                 row_values = row.astype(str).str.strip().values
                 
-                # ถ้าเป็นแถวที่มีคำว่า DATE, STATION ถือว่าเป็นหัวข้อขยะซ้ำซ้อน ให้ข้ามไป
+                # หากเจอแถวที่เป็นหัวข้อตารางซ้ำซ้อน ให้ข้ามไป
                 if 'DATE' in [str(x).upper() for x in row_values] and 'STATION' in [str(x).upper() for x in row_values]:
                     continue
                 
-                # เช็คว่าแถวนั้นมี วันที่ (คอลัมน์ 0) และมีสถานี (คอลัมน์ 1) หรือไม่
-                date_val = str(row_values[0]).strip()
-                station_val = str(row_values[1]).strip()
-                # รหัสพนักงานมักจะอยู่คอลัมน์สุดท้ายที่มีข้อมูล (จากไฟล์จริงคือคอลัมน์ที่ 14 หรือขวาสุด)
-                # เราจะดึงค่าจากช่องขวาสุด (index -1) หรือรองสุดท้ายที่พบข้อมูลจริงมาเช็ค
-                emp_val = str(row_values[-1]).strip()
+                date_val = str(row_values[0]).strip()     # คอลัมน์แรกสุด (วันที่)
+                station_val = str(row_values[1]).strip()  # คอลัมน์ที่สอง (ชื่อรุ่น / Station)
+                emp_val = str(row_values[-1]).strip()     # คอลัมน์ขวาสุด (รหัสพนักงาน)
                 
-                # คัดกรองเอาเฉพาะแถวที่มี วันที่จริง ๆ (เช่น มีเครื่องหมาย / ) และมีรหัสพนักงาน
+                # คัดกรอง: แถวนั้นต้องเป็นวันที่จริง (มีเครื่องหมาย /) และมีรหัสพนักงานจริง ไม่ใช่บรรทัดว่าง
                 if '/' in date_val and date_val != 'nan' and station_val != 'nan' and emp_val != 'nan' and emp_val != '':
                     cleaned_rows.append({
                         'DATE': date_val,
@@ -79,16 +75,15 @@ if user_role in ["Admin 1", "Admin 2"]:
                         'EMP_ID': emp_val
                     })
             
-            # แปลงผลลัพธ์เป็นตารางที่ใช้งานได้จริง
             if len(cleaned_rows) == 0:
-                st.error("❌ ระบบพยายามกวาดข้อมูลแล้ว แต่ไม่พบแถวข้อมูลที่สมบูรณ์ตามโครงสร้าง กรุณาเช็คไฟล์อีกครั้งครับ")
+                st.error("❌ ไม่สามารถดึงข้อมูลจากไฟล์นี้ได้ กรุณาตรวจสอบว่าในตารางมีข้อมูลวันที่และรหัสพนักงานครบถ้วนหรือไม่")
             else:
                 df_clean = pd.DataFrame(cleaned_rows)
                 st.session_state['database'] = df_clean
-                st.success(f"🎉 รอบนี้ผ่านแล้วครับพี่! ระบบสแกนและดึงข้อมูลงานจริงออกมาได้ทั้งหมด {len(df_clean)} รายการ")
+                st.success(f"🎉 สำเร็จแล้วครับพี่! ระบบสแกนไฟล์ดึงข้อมูลงานจริงออกมาได้ {len(df_clean)} รายการ")
                 
         except Exception as e:
-            st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์: {e}")
+            st.error(f"เกิดข้อผิดพลาดในการเปิดหรืออ่านไฟล์: {e} (แนะนำให้ลองเซฟไฟล์เป็น .csv หรืออัปโหลดใหม่อีกครั้ง)")
             
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
@@ -96,6 +91,10 @@ if user_role in ["Admin 1", "Admin 2"]:
 # --- 5. ส่วนแสดงผลข้อมูล ---
 if st.session_state['database'] is not None:
     df = st.session_state['database']
+    
+    df['DATE'] = df['DATE'].astype(str).str.strip()
+    df['EMP_ID'] = df['EMP_ID'].astype(str).str.strip()
+    df['STATION'] = df['STATION'].astype(str).str.strip()
     
     st.subheader("🔍 เลือกเงื่อนไขเพื่อค้นหายอดงาน")
     col1, col2 = st.columns(2)
@@ -105,23 +104,19 @@ if st.session_state['database'] is not None:
         selected_date = st.selectbox("📅 1. เลือกวันที่ (DATE):", all_dates)
         
     with col2:
-        # กรองรหัสพนักงานที่มีงานในวันนั้นๆ
         filtered_by_date = df[df['DATE'] == selected_date]
         all_emp_ids = sorted(filtered_by_date['EMP_ID'].unique())
         selected_emp_id = st.selectbox("👤 2. เลือกรหัสพนักงาน (EMP ID):", all_emp_ids)
         
-    # ดึงยอดงานของคนนั้นในวันนั้น
     final_result = filtered_by_date[filtered_by_date['EMP_ID'] == selected_emp_id]
     
     st.markdown("---")
     st.markdown(f"### 📋 สรุปยอดงานของรหัสพนักงาน: **{selected_emp_id}** ประจำวันที่ **{selected_date}**")
     
     if not final_result.empty:
-        # สรุปนับจำนวนตัวแยกตามแต่ละ Station
         summary_counts = final_result['STATION'].value_counts().reset_index()
         summary_counts.columns = ['STATION', 'จำนวน (ตัว)']
         
-        # แสดงผลเป็นกล่องการ์ดสวยๆ
         m_col1, m_col2, m_col3 = st.columns(3)
         for idx, row in summary_counts.iterrows():
             current_col = [m_col1, m_col2, m_col3][idx % 3]
@@ -134,8 +129,7 @@ if st.session_state['database'] is not None:
                 </div>
                 """, unsafe_allow_html=True)
         
-        # แสดงตารางให้ตรวจสอบ
-        with st.expander("🔍 ดูรายการแถวข้อมูลทั้งหมดที่ระบบนับยอด"):
+        with st.expander("🔍 ดูรายละเอียดตารางงานทั้งหมดที่ระบบนับยอด"):
             st.dataframe(final_result.reset_index(drop=True), use_container_width=True)
             
     else:
