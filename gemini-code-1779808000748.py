@@ -33,41 +33,50 @@ st.sidebar.markdown("---")
 # --- 3. หน้าตาหลัก ---
 st.markdown('<div class="main-title">📊 ระบบบันทึกและสรุปยอดงานพนักงานประจำวัน</div>', unsafe_allow_html=True)
 
+# สร้างตัวแปรเก็บฐานข้อมูลในระบบ
 if 'database' not in st.session_state:
     st.session_state['database'] = None
 
 # --- 4. ส่วนของ Admin อัปโหลดไฟล์ ---
 if user_role in ["Admin 1", "Admin 2"]:
     st.markdown('<div class="admin-box">', unsafe_allow_html=True)
-    st.subheader("📥 พื้นที่สำหรับ Admin: อัปโหลดไฟล์ยอดงานประจำวัน")
+    st.subheader("📥 พื้นที่สำหรับ Admin: จัดการไฟล์ยอดงานประจำวัน")
     
-    uploaded_file = st.file_uploader("โยนไฟล์ Excel (.xlsx) หรือ CSV ตรงนี้", type=["xlsx", "csv"], key="uploader")
+    col_upload, col_clear = st.columns([4, 1])
     
+    with col_upload:
+        # กำหนดให้รับเฉพาะไฟล์ .csv เท่านั้น
+        uploaded_file = st.file_uploader("โยนไฟล์ CSV (.csv) ตรงนี้ ระบบจะเคลียร์ขยะให้รวดเร็วทันใจ", type=["csv"], key="uploader")
+    
+    with col_clear:
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        # 🔴 ปุ่มเคลียร์ข้อมูลออกจากระบบ
+        if st.button("🗑️ เคลียร์ข้อมูลทั้งหมด", type="primary", use_container_width=True):
+            st.session_state['database'] = None
+            st.rerun()
+            
     if uploaded_file is not None:
         try:
-            # 1. โหลดไฟล์เข้ามาโดยบังคับให้อ่านทุกช่องเป็น "ตัวหนังสือ (str)" ตั้งแต่แรกเพื่อกันเอ๋อ
-            if uploaded_file.name.endswith('.csv'):
-                df_raw = pd.read_csv(uploaded_file, header=None, dtype=str)
-            else:
-                df_raw = pd.read_excel(uploaded_file, header=None, engine='openpyxl', dtype=str)
+            # 1. อ่านไฟล์ CSV โดยบังคับให้ทุกช่องเป็น String (ตัวหนังสือ) ตั้งแต่แรก
+            df_raw = pd.read_csv(uploaded_file, header=None, dtype=str)
             
             cleaned_rows = []
             
-            # 2. วนลูปสแกนทีละแถวแบบปลอดภัย
+            # 2. กรองข้อมูลเฉพาะแถวที่มีประโยชน์
             for idx, row in df_raw.iterrows():
-                # แปลงค่าและตัดช่องว่าง แปลงเป็นตัวพิมพ์ใหญ่เพื่อความชัวร์ในการเช็คขยะ
+                # ตรวจสอบและตัดช่องว่าง
                 date_val = str(row.iloc[0]).strip()
                 station_val = str(row.iloc[1]).strip()
-                emp_val = str(row.iloc[-1]).strip()
+                emp_val = str(row.iloc[-1]).strip() # เอาคอลัมน์ขวาสุดเสมอ (EMP ID)
                 
-                # เช็คคำว่า DATE หรือหัวตารางซ้ำๆ
+                # ข้ามแถวที่เป็นหัวตารางซ้ำ ๆ
                 if 'DATE' in date_val.upper() or 'STATION' in station_val.upper():
                     continue
                 
-                # กรองเศษแถวว่าง แถวแถม หรือแถวที่เป็น nan
+                # ดึงเฉพาะแถวที่มีข้อมูลครบถ้วน ไม่เป็นช่องว่าง หรือ nan
                 if date_val != 'nan' and date_val != '' and station_val != 'nan' and station_val != '' and emp_val != 'nan' and emp_val != '':
                     
-                    # หั่นวันที่เอาเฉพาะส่วนหลัก (กรณีมีเวลาพ่วงมาด้วยจากระบบ Excel)
+                    # ถ้าระบบแถมเวลามากับวันที่ ให้หั่นเอาเฉพาะวันที่อย่างเดียว
                     if " " in date_val:
                         date_val = date_val.split(" ")[0]
                         
@@ -77,15 +86,15 @@ if user_role in ["Admin 1", "Admin 2"]:
                         'EMP_ID': emp_val
                     })
             
-            # 3. สรุปตารางผลลัพธ์
+            # 3. บันทึกเข้าสู่ตัวแปรระบบ
             if len(cleaned_rows) == 0:
-                st.error("❌ ดึงข้อมูลไม่สำเร็จ กรุณาเช็คว่าโครงสร้างไฟล์มีการขยับคอลัมน์หรือไม่")
+                st.error("❌ ไม่พบข้อมูลงานจริงในไฟล์ CSV กรุณาตรวจสอบว่าข้อมูลอยู่ในคอลัมน์ A, B และคอลัมน์สุดท้ายหรือไม่")
             else:
                 st.session_state['database'] = pd.DataFrame(cleaned_rows)
-                st.success(f"🎉 รอบนี้ผ่านฉลุยครับพี่! ดึงข้อมูลงานจริงได้ทั้งหมด {len(cleaned_rows)} รายการ")
+                st.success(f"🚀 สำเร็จเสร็จสิ้นครับพี่! โหลดข้อมูลจาก CSV ได้อย่างรวดเร็วทั้งหมด {len(cleaned_rows)} รายการ")
                 
         except Exception as e:
-            st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์: {e}")
+            st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์ CSV: {e}")
             
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
