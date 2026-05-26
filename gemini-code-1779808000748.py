@@ -51,18 +51,21 @@ if user_role in ["Admin 1", "Admin 2"]:
             else:
                 df_input = pd.read_excel(uploaded_file)
                 
-            # ล้างช่องว่างที่หัวคอลัมน์ออกเพื่อกันเอ๋อ
-            df_input.columns = df_input.columns.str.strip()
+            # ล้างช่องว่างที่หัวคอลัมน์ และแปลงเป็นตัวพิมพ์ใหญ่ทั้งหมดเพื่อความชัวร์
+            df_input.columns = df_input.columns.str.strip().str.upper()
             
-            # ตรวจสอบว่ามีคอลัมน์ตามไฟล์จริงไหม (Date, Station, OP_ID)
-            required_cols = ['Date', 'Station', 'OP_ID']
+            # ตรวจสอบคอลัมน์หลักตามรูปจริงของพี่: DATE, STATION, EMP ID
+            required_cols = ['DATE', 'STATION', 'EMP ID']
             missing_cols = [col for col in required_cols if col not in df_input.columns]
             
             if missing_cols:
-                st.error(f"❌ โครงสร้างไฟล์ไม่ถูกต้อง! ตารางต้องมีคอลัมน์ชื่อ: {', '.join(required_cols)} (ตัวพิมพ์เล็ก-ใหญ่ต้องตรง)")
+                st.error(f"❌ โครงสร้างไฟล์ไม่ถูกต้อง! ตารางต้องมีคอลัมน์ชื่อ: DATE, STATION, EMP ID")
             else:
-                st.session_state['database'] = df_input
-                st.success(f"🎉 อัปโหลดสำเร็จ! พบข้อมูลทั้งหมด {len(df_input)} รายการ")
+                # ลบแถวที่ไม่มีข้อมูลสำคัญออก (ลบแถวที่เป็นค่าว่างในช่อง DATE หรือ EMP ID)
+                df_clean = df_input.dropna(subset=['DATE', 'EMP ID']).copy()
+                
+                st.session_state['database'] = df_clean
+                st.success(f"🎉 อัปโหลดสำเร็จ! พบข้อมูลที่ใช้งานได้จริงทั้งหมด {len(df_clean)} รายการ")
                 
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาดในการอ่านไฟล์: {e}")
@@ -74,36 +77,36 @@ if user_role in ["Admin 1", "Admin 2"]:
 if st.session_state['database'] is not None:
     df = st.session_state['database']
     
-    # จัดการแปลงคอลัมน์ให้เป็น Text เพื่อป้องกันปัญหาการค้นหา
-    df['Date'] = df['Date'].astype(str).str.strip()
-    df['OP_ID'] = df['OP_ID'].astype(str).str.strip()
-    df['Station'] = df['Station'].astype(str).str.strip()
+    # แปลงคอลัมน์ให้เป็นตัวหนังสือ (String) และตัดช่องว่างออก
+    df['DATE'] = df['DATE'].astype(str).str.strip()
+    df['EMP ID'] = df['EMP ID'].astype(str).str.strip()
+    df['STATION'] = df['STATION'].astype(str).str.strip()
     
     st.subheader("🔍 เลือกเงื่อนไขเพื่อค้นหายอดงาน")
     col1, col2 = st.columns(2)
     
     with col1:
-        all_dates = sorted(df['Date'].unique())
-        selected_date = st.selectbox("📅 1. เลือกวันที่ (Date):", all_dates)
+        all_dates = sorted(df['DATE'].unique())
+        selected_date = st.selectbox("📅 1. เลือกวันที่ (DATE):", all_dates)
         
     with col2:
-        # กรองเอาเฉพาะพนักงานที่มีงานในวันนั้นๆ มาให้เลือก
-        filtered_by_date = df[df['Date'] == selected_date]
-        all_emp_ids = sorted(filtered_by_date['OP_ID'].unique())
-        selected_emp_id = st.selectbox("👤 2. เลือกรหัสพนักงาน (OP_ID):", all_emp_ids)
+        # กรองเอาเฉพาะพนักงานที่มีงานในวันนั้นๆ
+        filtered_by_date = df[df['DATE'] == selected_date]
+        all_emp_ids = sorted(filtered_by_date['EMP ID'].unique())
+        selected_emp_id = st.selectbox("👤 2. เลือกรหัสพนักงาน (EMP ID):", all_emp_ids)
         
-    # กรองข้อมูลจริง
-    final_result = filtered_by_date[filtered_by_date['OP_ID'] == selected_emp_id]
+    # กรองข้อมูลตามที่เลือก
+    final_result = filtered_by_date[filtered_by_date['EMP ID'] == selected_emp_id]
     
     st.markdown("---")
     st.markdown(f"### 📋 สรุปยอดงานของรหัสพนักงาน: **{selected_emp_id}** ประจำวันที่ **{selected_date}**")
     
     if not final_result.empty:
-        # คำนวณนับจำนวนว่าพนักงานคนนี้ทำแต่ละ Station ไปกี่ตัว
-        summary_counts = final_result['Station'].value_counts().reset_index()
-        summary_counts.columns = ['Station', 'จำนวน (ตัว)']
+        # นับจำนวนตัวแยกตาม Station / รุ่นสินค้า
+        summary_counts = final_result['STATION'].value_counts().reset_index()
+        summary_counts.columns = ['STATION', 'จำนวน (ตัว)']
         
-        # แสดงผลลัพธ์เป็นกล่องการ์ดสวยๆ
+        # แสดงผลเป็นกล่องการ์ดสวยงาม
         m_col1, m_col2, m_col3 = st.columns(3)
         for idx, row in summary_counts.iterrows():
             current_col = [m_col1, m_col2, m_col3][idx % 3]
@@ -111,14 +114,14 @@ if st.session_state['database'] is not None:
                 st.markdown(f"""
                 <div class="result-card">
                     <p style="margin:0; color:#555; font-size:14px;">Station / รุ่นสินค้า</p>
-                    <h3 style="margin:5px 0; color:#1E3A8A;">{row['Station']}</h3>
+                    <h3 style="margin:5px 0; color:#1E3A8A;">{row['STATION']}</h3>
                     <p style="margin:0; font-size:24px; font-weight:bold; color:#10B981;">{row['จำนวน (ตัว)']} ตัว</p>
                 </div>
                 """, unsafe_allow_html=True)
         
-        # แสดงตารางดีเทลด้านล่าง เผื่อไว้เช็คเวลาทำงาน
-        with st.expander("🔍 ดูรายการงานดิบทั้งหมดของพนักงานคนนี้"):
-            st.dataframe(final_result[['Date', 'Station', 'OP_ID']], use_container_width=True)
+        # แสดงตารางข้อมูลดิบ
+        with st.expander("🔍 ดูรายละเอียดตารางงานทั้งหมด"):
+            st.dataframe(final_result[['DATE', 'STATION', 'EMP ID']], use_container_width=True)
             
     else:
         st.warning("⚠️ ไม่พบข้อมูลงานของพนักงานคนนี้ในวันที่ระบุ")
