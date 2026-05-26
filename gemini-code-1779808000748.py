@@ -45,37 +45,44 @@ if user_role in ["Admin 1", "Admin 2"]:
     
     if uploaded_file is not None:
         try:
-            # ดึงข้อมูลดิบเข้ามาโดยไม่อ่านหัวตาราง
+            # 1. โหลดไฟล์เข้ามาโดยบังคับให้อ่านทุกช่องเป็น "ตัวหนังสือ (str)" ตั้งแต่แรกเพื่อกันเอ๋อ
             if uploaded_file.name.endswith('.csv'):
-                df_raw = pd.read_csv(uploaded_file, header=None)
+                df_raw = pd.read_csv(uploaded_file, header=None, dtype=str)
             else:
-                df_raw = pd.read_excel(uploaded_file, header=None, engine='openpyxl')
+                df_raw = pd.read_excel(uploaded_file, header=None, engine='openpyxl', dtype=str)
             
-            # บังคับเลือกเฉพาะ 3 คอลัมน์สำคัญ (คอลัมน์ index 0=วันที่, 1=Station, -1=ขวาสุดรหัสพนักงาน)
-            df_select = pd.DataFrame({
-                'DATE': df_raw[0],
-                'STATION': df_raw[1],
-                'EMP_ID': df_raw.iloc[:, -1] # เอาคอลัมน์ขวาสุดเสมอ
-            })
+            cleaned_rows = []
             
-            # แปลงค่าทุกช่องให้เป็นตัวหนังสือและตัดช่องว่างออก
-            df_select = df_select.astype(str).apply(lambda x: x.str.strip())
+            # 2. วนลูปสแกนทีละแถวแบบปลอดภัย
+            for idx, row in df_raw.iterrows():
+                # แปลงค่าและตัดช่องว่าง แปลงเป็นตัวพิมพ์ใหญ่เพื่อความชัวร์ในการเช็คขยะ
+                date_val = str(row.iloc[0]).strip()
+                station_val = str(row.iloc[1]).strip()
+                emp_val = str(row.iloc[-1]).strip()
+                
+                # เช็คคำว่า DATE หรือหัวตารางซ้ำๆ
+                if 'DATE' in date_val.upper() or 'STATION' in station_val.upper():
+                    continue
+                
+                # กรองเศษแถวว่าง แถวแถม หรือแถวที่เป็น nan
+                if date_val != 'nan' and date_val != '' and station_val != 'nan' and station_val != '' and emp_val != 'nan' and emp_val != '':
+                    
+                    # หั่นวันที่เอาเฉพาะส่วนหลัก (กรณีมีเวลาพ่วงมาด้วยจากระบบ Excel)
+                    if " " in date_val:
+                        date_val = date_val.split(" ")[0]
+                        
+                    cleaned_rows.append({
+                        'DATE': date_val,
+                        'STATION': station_val,
+                        'EMP_ID': emp_val
+                    })
             
-            # ลบแถวขยะที่เป็นหัวตารางซ้ำๆ ออกไป
-            df_clean = df_select[
-                (~df_select['DATE'].str.upper().str.contains('DATE', na=False)) & 
-                (df_select['DATE'] != 'nan') & (df_select['DATE'] != '') &
-                (df_select['EMP_ID'] != 'nan') & (df_select['EMP_ID'] != '')
-            ].copy()
-            
-            # จัดการรูปแบบวันที่ให้สวยงาม (ตัดเวลาออกถ้ามีพ่วงมา)
-            df_clean['DATE'] = df_clean['DATE'].apply(lambda x: x.split(" ")[0] if " " in x else x)
-            
-            if df_clean.empty:
-                st.error("❌ ไม่สามารถดึงข้อมูลได้ กรุณาตรวจสอบสิทธิ์ผู้ใช้หรือหน้าตาตารางข้างในไฟล์อีกครั้ง")
+            # 3. สรุปตารางผลลัพธ์
+            if len(cleaned_rows) == 0:
+                st.error("❌ ดึงข้อมูลไม่สำเร็จ กรุณาเช็คว่าโครงสร้างไฟล์มีการขยับคอลัมน์หรือไม่")
             else:
-                st.session_state['database'] = df_clean.reset_index(drop=True)
-                st.success(f"🎉 สำเร็จแล้วครับพี่! ระบบดึงข้อมูลงานจริงออกมาได้ทั้งหมด {len(df_clean)} รายการ")
+                st.session_state['database'] = pd.DataFrame(cleaned_rows)
+                st.success(f"🎉 รอบนี้ผ่านฉลุยครับพี่! ดึงข้อมูลงานจริงได้ทั้งหมด {len(cleaned_rows)} รายการ")
                 
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์: {e}")
