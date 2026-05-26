@@ -24,9 +24,9 @@ user_role = st.sidebar.selectbox(
 )
 
 if user_role in ["Admin 1", "Admin 2"]:
-    st.sidebar.success(f"⚡ สถานะ: {user_role} (สิทธิ์ผู้ดูแลระบบ)")
+    st.sidebar.success(f"⚡ Status: {user_role} (สิทธิ์ผู้ดูแลระบบ)")
 else:
-    st.sidebar.info("👤 สถานะ: พนักงานทั่วไป")
+    st.sidebar.info("👤 Status: พนักงานทั่วไป")
 
 st.sidebar.markdown("---")
 
@@ -45,46 +45,37 @@ if user_role in ["Admin 1", "Admin 2"]:
     
     if uploaded_file is not None:
         try:
-            # ดึงข้อมูลดิบเข้ามา
+            # ดึงข้อมูลดิบเข้ามาโดยไม่อ่านหัวตาราง
             if uploaded_file.name.endswith('.csv'):
                 df_raw = pd.read_csv(uploaded_file, header=None)
             else:
                 df_raw = pd.read_excel(uploaded_file, header=None, engine='openpyxl')
             
-            cleaned_rows = []
+            # บังคับเลือกเฉพาะ 3 คอลัมน์สำคัญ (คอลัมน์ index 0=วันที่, 1=Station, -1=ขวาสุดรหัสพนักงาน)
+            df_select = pd.DataFrame({
+                'DATE': df_raw[0],
+                'STATION': df_raw[1],
+                'EMP_ID': df_raw.iloc[:, -1] # เอาคอลัมน์ขวาสุดเสมอ
+            })
             
-            # วนลูปอ่านข้อมูลทุกแถว
-            for idx, row in df_raw.iterrows():
-                row_values = row.astype(str).str.strip().values
-                
-                # ข้ามบรรทัดที่เป็นหัวข้อตารางซ้ำซ้อน
-                if 'DATE' in [str(x).upper() for x in row_values] and 'STATION' in [str(x).upper() for x in row_values]:
-                    continue
-                
-                # ดึงค่าจากคอลัมน์สำคัญ (คอลัมน์ 1 = วันที่, คอลัมน์ 2 = Station, คอลัมน์สุดท้าย = EMP ID)
-                date_val = str(row_values[0]).strip()
-                station_val = str(row_values[1]).strip()
-                emp_val = str(row_values[-1]).strip()
-                
-                # กรองเศษขยะ: ต้องไม่ใช่ค่าว่าง และไม่ใช่คำว่า nan
-                if date_val != 'nan' and date_val != '' and station_val != 'nan' and station_val != '' and emp_val != 'nan' and emp_val != '':
-                    
-                    # จัดการแปลงรูปแบบวันที่ให้อ่านง่าย ถ้ามาเป็นวันที่ยาว ๆ ให้ตัดเอาแค่ส่วนสั้นๆ
-                    if " " in date_val:
-                        date_val = date_val.split(" ")[0]
-                        
-                    cleaned_rows.append({
-                        'DATE': date_val,
-                        'STATION': station_val,
-                        'EMP_ID': emp_val
-                    })
+            # แปลงค่าทุกช่องให้เป็นตัวหนังสือและตัดช่องว่างออก
+            df_select = df_select.astype(str).apply(lambda x: x.str.strip())
             
-            if len(cleaned_rows) == 0:
-                st.error("❌ ระบบพยายามอ่านข้อมูลแล้วแต่ยังไม่สำเร็จ กรุณาติดต่อโปรแกรมเมอร์เพื่อดูไส้ในไฟล์")
+            # ลบแถวขยะที่เป็นหัวตารางซ้ำๆ ออกไป
+            df_clean = df_select[
+                (~df_select['DATE'].str.upper().str.contains('DATE', na=False)) & 
+                (df_select['DATE'] != 'nan') & (df_select['DATE'] != '') &
+                (df_select['EMP_ID'] != 'nan') & (df_select['EMP_ID'] != '')
+            ].copy()
+            
+            # จัดการรูปแบบวันที่ให้สวยงาม (ตัดเวลาออกถ้ามีพ่วงมา)
+            df_clean['DATE'] = df_clean['DATE'].apply(lambda x: x.split(" ")[0] if " " in x else x)
+            
+            if df_clean.empty:
+                st.error("❌ ไม่สามารถดึงข้อมูลได้ กรุณาตรวจสอบสิทธิ์ผู้ใช้หรือหน้าตาตารางข้างในไฟล์อีกครั้ง")
             else:
-                df_clean = pd.DataFrame(cleaned_rows)
-                st.session_state['database'] = df_clean
-                st.success(f"🎉 รอบนี้ดึงยอดสำเร็จแล้วครับพี่! พบข้อมูลงานทั้งหมด {len(df_clean)} รายการ")
+                st.session_state['database'] = df_clean.reset_index(drop=True)
+                st.success(f"🎉 สำเร็จแล้วครับพี่! ระบบดึงข้อมูลงานจริงออกมาได้ทั้งหมด {len(df_clean)} รายการ")
                 
         except Exception as e:
             st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์: {e}")
@@ -95,11 +86,6 @@ if user_role in ["Admin 1", "Admin 2"]:
 # --- 5. ส่วนแสดงผลข้อมูล ---
 if st.session_state['database'] is not None:
     df = st.session_state['database']
-    
-    # เคลียร์ซ้ำเพื่อความชัวร์
-    df['DATE'] = df['DATE'].astype(str).str.strip()
-    df['EMP_ID'] = df['EMP_ID'].astype(str).str.strip()
-    df['STATION'] = df['STATION'].astype(str).str.strip()
     
     st.subheader("🔍 เลือกเงื่อนไขเพื่อค้นหายอดงาน")
     col1, col2 = st.columns(2)
