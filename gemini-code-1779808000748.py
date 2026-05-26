@@ -8,7 +8,6 @@ st.set_page_config(
     layout="wide"
 )
 
-# ปรับแต่งสไตล์หน้าเว็บ
 st.markdown("""
     <style>
     .main-title { font-size: 32px; font-weight: bold; color: #1E3A8A; margin-bottom: 20px; }
@@ -41,34 +40,39 @@ if 'database' not in st.session_state:
 if user_role in ["Admin 1", "Admin 2"]:
     st.markdown('<div class="admin-box">', unsafe_allow_html=True)
     st.subheader("📥 พื้นที่สำหรับ Admin: อัปโหลดไฟล์ยอดงานประจำวัน")
-    st.write("📢 โย่นไฟล์ได้ทั้ง Excel (.xlsx) และ CSV ระบบจะเคลียร์ขยะให้อัตโนมัติ")
     
     uploaded_file = st.file_uploader("โยนไฟล์ Excel (.xlsx) หรือ CSV ตรงนี้", type=["xlsx", "csv"], key="uploader")
     
     if uploaded_file is not None:
         try:
-            # ใช้คำสั่งอ่านข้อมูลแบบดิบที่สุด โดยบังคับใช้ engine='openpyxl' สำหรับ excel เพื่อแก้ปัญหาค้าง
+            # ดึงข้อมูลดิบเข้ามา
             if uploaded_file.name.endswith('.csv'):
-                raw_df = pd.read_csv(uploaded_file, header=None)
+                df_raw = pd.read_csv(uploaded_file, header=None)
             else:
-                raw_df = pd.read_excel(uploaded_file, header=None, engine='openpyxl')
+                df_raw = pd.read_excel(uploaded_file, header=None, engine='openpyxl')
             
             cleaned_rows = []
             
-            # วนลูปอ่านข้อมูลทีละบรรทัด ค้นหาข้อมูลงานจริง
-            for idx, row in raw_df.iterrows():
+            # วนลูปอ่านข้อมูลทุกแถว
+            for idx, row in df_raw.iterrows():
                 row_values = row.astype(str).str.strip().values
                 
-                # หากเจอแถวที่เป็นหัวข้อตารางซ้ำซ้อน ให้ข้ามไป
+                # ข้ามบรรทัดที่เป็นหัวข้อตารางซ้ำซ้อน
                 if 'DATE' in [str(x).upper() for x in row_values] and 'STATION' in [str(x).upper() for x in row_values]:
                     continue
                 
-                date_val = str(row_values[0]).strip()     # คอลัมน์แรกสุด (วันที่)
-                station_val = str(row_values[1]).strip()  # คอลัมน์ที่สอง (ชื่อรุ่น / Station)
-                emp_val = str(row_values[-1]).strip()     # คอลัมน์ขวาสุด (รหัสพนักงาน)
+                # ดึงค่าจากคอลัมน์สำคัญ (คอลัมน์ 1 = วันที่, คอลัมน์ 2 = Station, คอลัมน์สุดท้าย = EMP ID)
+                date_val = str(row_values[0]).strip()
+                station_val = str(row_values[1]).strip()
+                emp_val = str(row_values[-1]).strip()
                 
-                # คัดกรอง: แถวนั้นต้องเป็นวันที่จริง (มีเครื่องหมาย /) และมีรหัสพนักงานจริง ไม่ใช่บรรทัดว่าง
-                if '/' in date_val and date_val != 'nan' and station_val != 'nan' and emp_val != 'nan' and emp_val != '':
+                # กรองเศษขยะ: ต้องไม่ใช่ค่าว่าง และไม่ใช่คำว่า nan
+                if date_val != 'nan' and date_val != '' and station_val != 'nan' and station_val != '' and emp_val != 'nan' and emp_val != '':
+                    
+                    # จัดการแปลงรูปแบบวันที่ให้อ่านง่าย ถ้ามาเป็นวันที่ยาว ๆ ให้ตัดเอาแค่ส่วนสั้นๆ
+                    if " " in date_val:
+                        date_val = date_val.split(" ")[0]
+                        
                     cleaned_rows.append({
                         'DATE': date_val,
                         'STATION': station_val,
@@ -76,14 +80,14 @@ if user_role in ["Admin 1", "Admin 2"]:
                     })
             
             if len(cleaned_rows) == 0:
-                st.error("❌ ไม่สามารถดึงข้อมูลจากไฟล์นี้ได้ กรุณาตรวจสอบว่าในตารางมีข้อมูลวันที่และรหัสพนักงานครบถ้วนหรือไม่")
+                st.error("❌ ระบบพยายามอ่านข้อมูลแล้วแต่ยังไม่สำเร็จ กรุณาติดต่อโปรแกรมเมอร์เพื่อดูไส้ในไฟล์")
             else:
                 df_clean = pd.DataFrame(cleaned_rows)
                 st.session_state['database'] = df_clean
-                st.success(f"🎉 สำเร็จแล้วครับพี่! ระบบสแกนไฟล์ดึงข้อมูลงานจริงออกมาได้ {len(df_clean)} รายการ")
+                st.success(f"🎉 รอบนี้ดึงยอดสำเร็จแล้วครับพี่! พบข้อมูลงานทั้งหมด {len(df_clean)} รายการ")
                 
         except Exception as e:
-            st.error(f"เกิดข้อผิดพลาดในการเปิดหรืออ่านไฟล์: {e} (แนะนำให้ลองเซฟไฟล์เป็น .csv หรืออัปโหลดใหม่อีกครั้ง)")
+            st.error(f"เกิดข้อผิดพลาดในการประมวลผลไฟล์: {e}")
             
     st.markdown('</div>', unsafe_allow_html=True)
     st.markdown("<br>", unsafe_allow_html=True)
@@ -92,6 +96,7 @@ if user_role in ["Admin 1", "Admin 2"]:
 if st.session_state['database'] is not None:
     df = st.session_state['database']
     
+    # เคลียร์ซ้ำเพื่อความชัวร์
     df['DATE'] = df['DATE'].astype(str).str.strip()
     df['EMP_ID'] = df['EMP_ID'].astype(str).str.strip()
     df['STATION'] = df['STATION'].astype(str).str.strip()
